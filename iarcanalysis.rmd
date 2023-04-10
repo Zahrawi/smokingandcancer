@@ -1,0 +1,63 @@
+---
+title: "Lung Cancer"
+author: "Hasan Jamil"
+date: "2023-04-10"
+output: html_document
+---
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+setwd("G:\\My Drive\\Projects\\smokingandcaner")
+```
+
+## Loading the essential libraries
+
+```{r}
+library(tidyverse)
+library(janitor)
+library(plotly)
+```
+
+
+## Loading the datasets
+```{r cars}
+# Creating a vector of file pathes 
+file_pathes <- list.files(path = "G:\\My Drive\\Projects\\smokingandcaner\\datasets\\iarc", pattern = "*.csv", full.names = TRUE)
+# Looping and importeing the datasets
+for (i in 1:length(file_pathes)){
+  assign(paste0("dataset", i), read_csv(file_pathes[i]))
+}
+
+# List all the datasets in the current working directory with a similar prefix
+datasets <- ls(pattern="^dataset")
+
+# Use lapply and rbind to combine the datasets into a single dataset
+combined_data <- do.call(rbind, lapply(datasets, get))
+combined_data <- combined_data %>% clean_names()
+```
+
+
+## Checking the data
+
+```{r pressure, echo=FALSE}
+table(combined_data$country_label)
+```
+
+
+
+## Plotting 
+
+### Male Mortality
+
+```{r}
+male_data <- combined_data %>% filter(sex == 1)
+male_plot <- ggplot(male_data) + geom_smooth(aes(year, asr_world, color=country_label)) 
+ggplotly(male_plot)
+```
+
+### Female Mortality
+
+```{r}
+female_data <- combined_data %>% filter(sex == 2)
+female_plot <- ggplot(female_data) + geom_smooth(aes(year, asr_world, color=country_label)) 
+ggplotly(female_plot)
+```
