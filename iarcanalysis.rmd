@@ -11,15 +11,17 @@ setwd("G:\\My Drive\\Projects\\smokingandcaner")
 
 ## Loading the essential libraries
 
-```{r}
+```{r, message=FALSE, warning=FALSE}
 library(tidyverse)
 library(janitor)
 library(plotly)
+library(forecast)
+library(prophet)
 ```
 
 
 ## Loading the datasets
-```{r cars}
+```{r, message=FALSE, warning=FALSE}
 # Creating a vector of file pathes 
 file_pathes <- list.files(path = "G:\\My Drive\\Projects\\smokingandcaner\\datasets\\iarc", pattern = "*.csv", full.names = TRUE)
 # Looping and importeing the datasets
@@ -60,4 +62,147 @@ ggplotly(male_plot)
 female_data <- combined_data %>% filter(sex == 2)
 female_plot <- ggplot(female_data) + geom_smooth(aes(year, asr_world, color=country_label)) 
 ggplotly(female_plot)
+```
+
+# The Forecasting
+The methodology I used for forecasting involved several steps. Initially, I decided to use the Prophet package instead of ARIMA since the data was non-stationary, and Prophet has the capability to handle such data.
+
+Next, I focused on forecasting the smoking prevalence for males in Japan using the Prophet package. I started by selecting the relevant data columns and renaming them to match the required input format for the package. Then, I converted the data to the time series format using the as.Date function. I used the resulting time series as the input to the Prophet model, and used the make_future_dataframe function to generate the future data points.
+
+For the second step, I utilized the forecasted smoking prevalence data and the historical data of age-standardized mortality to forecast the age-standardized mortality in Japan. I incorporated the forecasted smoking prevalence data as an additional regressor in the Prophet model, as it was expected to have a significant impact on the mortality rate.
+
+Overall, the methodology I followed involved using the Prophet package to model the non-stationary time series data, and incorporating additional regressors to improve the forecasting accuracy.
+### creating the time-series for japan
+  
+  ```{r}
+mortality <- read.csv("datasets/iarc/japan/mort.csv")
+  ```
+
+
+```{r}
+mortality <- mortality %>% 
+  clean_names() %>%
+  select(year, asr_world, sex) %>%
+  mutate(sex = factor(sex, labels = c("male", "female")))
+```
+
+```{r}
+# plotting the asr_world per year for each sex in japan
+ggplot(mortality) +
+  geom_line(aes(y = asr_world, x = year, colour = sex)) +
+  labs(title = "Japan Mortality Rate", x = "Year", y = "ASR Mortality")
+```
+
+```{r}
+smoking <- read.csv("datasets/iarc/japan/smokingpre_updated.csv") %>% 
+  rename(year = Year) %>% 
+  select(year, sex, smoker) %>%
+  mutate(sex = factor(sex, labels = c("male", "female")))
+```
+
+```{r}
+# plotting the number of smoker per sex for each year
+ggplot(smoking) +
+  geom_line(aes(y = smoker, x = year, colour = sex)) +
+  labs(title = "Smoking in Japan", x = "Year", y = "Prevelance of Smoking")
+```
+
+
+```{r}
+# merging the two datasets
+total_epi <- mortality %>% 
+    full_join(smoking, by=c("year", "sex"))
+```
+
+```{r}
+#
+ggplot(total_epi) +
+  geom_line(aes(y = asr_world, x = year, colour = sex)) +
+    geom_line(aes(y = smoker, x = year, colour = sex)) +
+  labs(title = "Japan Mortality Rate and Smoking", x = "Year")
+```
+
+```{r}
+total_epi <- total_epi %>% filter(sex == "male")
+```
+
+## first forecasting the smoking prevlance for males in japan
+```{r}
+total_epi <- na.omit(total_epi)
+df <- total_epi %>%
+  select(year, smoker) %>%
+  rename(ds = year, y = smoker) %>%
+  mutate(ds = as.Date(paste0(ds, "-01-01"), format = "%Y-%m-%d"))
+
+m <- prophet(df)
+
+future <- make_future_dataframe(m, periods = 20, freq = "year")
+
+forecast <- predict(m, future)
+
+p <- plot(m, forecast)
+p <- p + geom_vline(xintercept = forecast$ds[forecast$yhat < 0][1], linetype = "dashed", color = "red")
+p <- p + labs(title = "Forecasting Smoking Prevelance in Japan", x = "Year", y = "Smoking Prevelance")
+p <- p + annotate(geom = "text", x = forecast$ds[forecast$yhat < 0][1], y = 0, label = as.character(year(forecast$ds[forecast$yhat < 0][1])))
+ggplotly(p)
+```
+
+## Forecasting the Lung Cancer Mortality
+
+```{r}
+total_epi_prophet <- total_epi %>%
+  select(year, asr_world, smoker) %>%
+  rename(ds = year, y = asr_world, regressor = smoker)
+total_epi_prophet$ds <- as.Date(paste0(total_epi_prophet$ds, "-01-01"), format = "%Y-%m-%d")
+```
+
+```{r}
+total_epi_prophet <- na.omit(total_epi_prophet)
+```
+
+```{r}  
+m <- prophet()
+m <- add_regressor(m, 'regressor')
+```
+
+```{r}
+m <- fit.prophet(m, total_epi_prophet)
+```
+
+```{r}
+future <- make_future_dataframe(m, periods = 20, freq = "year")
+```
+
+
+```{r}
+total_epi <- na.omit(total_epi)
+```
+
+```{r}
+future$regressor <- forecast$yhat
+```
+
+```{r}
+forecast_mort <- predict(m, future)
+
+A <- plot(m, forecast_mort)
+A <- A + geom_vline(xintercept = forecast_mort$ds[forecast_mort$yhat < 0][1], linetype = "dashed", color = "red")
+A <- A + labs(title = "Forecasting Lung Cancer Mortality in Japan", x = "Year", y = "Lung Cancer Mortality")
+A <- A + annotate(geom = "text", x = forecast_mort$ds[forecast_mort$yhat < 0][1], y = 0, label = as.character(year(forecast_mort$ds[forecast_mort$yhat < 0][1])))
+ggplotly(A)
+```
+
+```{r}
+
+library(cowplot)
+
+# combine the two plots horizontally
+plot_combined <- plot_grid(p, A, ncol = 2)
+
+# add title and axis labels
+plot_combined <- plot_combined + ggtitle("Smoking Prevalence and Lung Cancer Mortality in Japan") +
+  xlab("Year") + ylab("Rate")
+
+# display the combined plot
+plot_combined
 ```
